@@ -1,4 +1,4 @@
-main world0 unk = ((0, map (\row -> map (\v -> if v then 1 else 0) row) (fst world0)), step)
+main world0 unk = ((0, map (\row -> map (\v -> if v < 2 then 255 else 0) row) (fst world0)), step)
 
 step state w =
   let moveCounts = snd state in
@@ -12,9 +12,9 @@ step state w =
   let possible = filter (\p -> read wmap (snd p)) (map (\d -> (d, move lpos d)) [0,1,2,3]) in
   let allPos = map (\p -> snd p) possible in
   let idealPos = if length allPos == 1 then allPos else map (\p -> snd p) (filter (\p -> fst p != lastDirInv) possible) in
-  let measureDist = (\p -> minBy id (map (\g -> len (sub p (pos g))) ghosts)) in
+  let measureDist = (\p -> minBy id (map (\g -> let v = sub p (pos g) in len v + not (read wmap (move p (dir v)))) ghosts)) in
   let measureCount = (\p -> read moveCounts p) in
-  let bestPos = (if vit lambda then minBy measureDist idealPos else if measureDist lpos < 5 then maxBy measureDist allPos else minBy measureCount idealPos) in
+  let bestPos = (if vit lambda then minBy measureDist idealPos else if measureDist lpos < 4 then maxBy measureDist allPos else minBy measureCount idealPos) in
   let bestDir = dir (sub bestPos lpos) in
   ((bestDir, update moveCounts lpos (\c -> c + 1)), bestDir)
 
@@ -49,4 +49,5 @@ inv x = let d = x + 2 in if d > 3 then d - 4 else d
 
 id x = x
 a < b = b > a
-a != b = if a == b then 0 else 1
+a != b = not (a == b)
+not b = if b then 0 else 1
