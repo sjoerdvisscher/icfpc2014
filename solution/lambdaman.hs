@@ -1,19 +1,26 @@
-main world0 unk = (map (\row -> map (\v -> if v then 1 else 0) row) (fst world0), step)
+main world0 unk = ((0, map (\row -> map (\v -> if v then 1 else 0) row) (fst world0)), step)
 
-step moveCounts w =
+step state w =
+  let moveCounts = snd state in
+  let lastDirInv = inv (fst state) in
   let wmap = fst w in
   let lambda = fst (snd w) in
   let lpos = pos lambda in
   let ghosts = fst (snd (snd w)) in
-  let poss = filter (\p -> read wmap p) (map (\d -> move lpos d) [0,1,2,3]) in
+  let allDirs = [0,1,2,3] in
+  let idealDirs = filter (\d -> d != lastDirInv) allDirs in
+  let possible = filter (\p -> read wmap (snd p)) (map (\d -> (d, move lpos d)) [0,1,2,3]) in
+  let allPos = map (\p -> snd p) possible in
+  let idealPos = if length allPos == 1 then allPos else map (\p -> snd p) (filter (\p -> fst p != lastDirInv) possible) in
   let measureDist = (\p -> minBy id (map (\g -> len (sub p (pos g))) ghosts)) in
   let measureCount = (\p -> read moveCounts p) in
-  let bestPos = if vit lambda then minBy measureDist poss else minBy measureCount poss in
+  let bestPos = (if vit lambda then minBy measureDist idealPos else if measureDist lpos < 5 then maxBy measureDist allPos else minBy measureCount idealPos) in
   let bestDir = dir (sub bestPos lpos) in
-  (update moveCounts lpos (\c -> c + 1), bestDir)
+  ((bestDir, update moveCounts lpos (\c -> c + 1)), bestDir)
 
 l !! n = if n then snd l !! (n - 1) else fst l
 foldr f z l = if atom l then z else f (fst l) (foldr f z (snd l))
+length l = foldr (\_ t -> 1 + t) 0 l
 map f l = foldr (\a t -> f a : t) [] l
 filter f l = foldr (\a t -> if f a then a : t else t) [] l
 sum l = foldr (\x y -> x + y) 0 l
