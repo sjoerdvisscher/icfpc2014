@@ -1,0 +1,2 @@
+This is basically a compiler for a small subset of Haskell in strict form to GCC.
+When running compile with (the real) GHC, the file lambdaman.hs in the solution dir is compiled to lambdaman.gcc.
