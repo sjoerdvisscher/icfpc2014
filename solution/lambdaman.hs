@@ -1,4 +1,4 @@
-main world0 unk = ((0, map (\row -> map (\v -> if v < 2 then 255 else 0) row) (fst world0)), step)
+main world0 unk = ((0, map (\row -> map (\v -> if v < 2 then 2 else 0) row) (fst world0)), step)
 
 step state w =
   let moveCounts = snd state in
