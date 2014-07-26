@@ -1,2 +1,11 @@
-This is basically a compiler for a small subset of Haskell in strict form to GCC.
-When running compile with (the real) GHC, the file lambdaman.hs in the solution dir is compiled to lambdaman.gcc.
+This is basically 2 compilers:
+1. a small subset of Haskell in strict form to GCC
+2. a small subset of Javascript to GHC
+
+To run:
+- Go to the code dir
+- Run "cabal build"
+- Run "dist/build/compile/compile"
+
+Then the file lambdaman.hs in the solution dir is compiled to lambdaman.gcc,
+and the ghost0.js file is compiled to ghost0.ghc.

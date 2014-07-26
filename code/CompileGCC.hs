@@ -1,17 +1,15 @@
 {-# LANGUAGE RecursiveDo #-}
+module CompileGCC (compileGCC) where
+
 import Language.Haskell.Parser
 import Language.Haskell.Syntax
+
 import Control.Applicative
 import Control.Monad.Trans.RWS.Lazy
 import Data.List
 
-type GCC = RWST Env [(String, [Instr])] (Int, Int) IO
-
-main :: IO ()
-main = do
-  src <- readFile "../solution/lambdaman.hs"
-  gcc <- compile (parseModule src)
-  writeFile "../solution/lambdaman.gcc" gcc
+compileGCC :: String -> IO String
+compileGCC = compile . parseModule
 
 compile :: ParseResult HsModule -> IO String
 compile err@ParseFailed{} = print err >> return ""
@@ -25,6 +23,8 @@ fixOrder :: [(String, a)] -> [(String, a)] -> [(String, a)]
 fixOrder acc (("main", b):rest) = ("main", b):(acc ++ rest)
 fixOrder acc (p:rest) = fixOrder (acc ++ [p]) rest
 fixOrder acc [] = acc
+
+type GCC = RWST Env [(String, [Instr])] (Int, Int) IO
 
 type Ctx = [(String, Instr)]
 data Env = Env { vars :: Ctx }
