@@ -9,9 +9,8 @@ import Control.Applicative
 import Control.Arrow (first, second)
 import Control.Monad
 import Control.Monad.Trans.RWS.Lazy
-import Data.List
 
-type Env = [String]
+type Env = (Int, [(String, Int)])
 type GHC = RWST Char () (Env, [Instr]) IO
 
 push :: [Instr] -> GHC ()
@@ -19,8 +18,14 @@ push instrs = modify (second (++ instrs))
 
 getOffset :: String -> GHC Int
 getOffset s = do
-  vars <- fst <$> get
-  maybe (fail ("Undeclared variable: " ++ s)) (return . (*2)) $ elemIndex s vars
+  vars <- snd . fst <$> get
+  maybe (fail ("Undeclared variable: " ++ s)) return $ lookup s vars
+
+addVar :: String -> Int -> GHC Int
+addVar nm size = do
+  (offset, vars) <- fst <$> get
+  modify (first (const (offset + size, (nm, offset):vars)))
+  return offset
 
 curPos :: GHC Int
 curPos = do
@@ -30,13 +35,18 @@ curPos = do
 goto :: Int -> GHC ()
 goto lbl = push [JEQ lbl (Int 0) (Int 0)]
 
+getReg :: GHC Arg
+getReg = do
+  c <- ask
+  return $ Reg c
+
 compileGHC :: String -> IO String
 compileGHC = compile . parseFromString
 
 compile :: Either ParseError (JavaScript SourcePos) -> IO String
 compile (Left err) = print err >> return ""
 compile (Right (Script _ stmts)) = do
-  instrs <- snd . fst <$> execRWST (compileStmts stmts) 'a' ([], [])
+  instrs <- snd . fst <$> execRWST (compileStmts stmts) 'a' ((0, []), [])
   return $ concatMap (\i -> show i ++ "\n") (instrs ++ [HLT])
 
 compileStmts :: [Statement SourcePos] -> GHC ()
@@ -48,32 +58,30 @@ compileStmt (ExprStmt _ (AssignExpr _ OpAssign tgt src)) = do
   lval <- compileLValue tgt
   assign lval csrc
 compileStmt (ExprStmt _ (AssignExpr _ op tgt src)) = do
-  (csrc, _) <- compileExpr src
+  (csrc:_) <- compileExpr src
   lval <- compileLValue tgt
   push [compileAssignOp op lval csrc]
 compileStmt (ExprStmt _ e) = void (compileExpr e)
-compileStmt (VarDeclStmt _ [VarDecl _ (Id _ s) mValue]) = do
-  modify $ first (++ [s])
-  case mValue of
-    Nothing -> return ()
-    Just expr -> do
-      offset <- getOffset s
-      cexpr <- compileExpr expr
-      assign (Ind (Int offset)) cexpr
+compileStmt (VarDeclStmt _ [VarDecl _ (Id _ s) (Just (ArrayLit _ exprs))]) = do
+  offset <- addVar s (length exprs)
+  mapM_ (\(expr, ofs) -> compileExpr expr >>= assign (Ind (Int ofs))) $ zip exprs [offset..]
+compileStmt (VarDeclStmt _ [VarDecl _ (Id _ s) (Just expr)]) = do
+  cexpr <- compileExpr expr
+  offset <- addVar s (length cexpr)
+  assign (Ind (Int offset)) cexpr
 compileStmt (IfStmt s1 (InfixExpr s2 OpLT l r) t e) = compileStmt (IfStmt s1 (InfixExpr s2 OpGEq l r) e t)
 compileStmt (IfStmt s1 (InfixExpr s2 OpGT l r) t e) = compileStmt (IfStmt s1 (InfixExpr s2 OpLEq l r) e t)
 compileStmt (IfStmt s1 (InfixExpr s2 OpEq l r) t e) = compileStmt (IfStmt s1 (InfixExpr s2 OpNEq l r) e t)
 compileStmt (IfStmt _ (InfixExpr _ op l r) t e) = do
   rec
-    (lArg, _) <- compileExpr l
-    (rArg, _) <- local succ (compileExpr r)
+    (lArg:_) <- compileExpr l
+    (rArg:_) <- local succ (compileExpr r)
     push [ compileCmpOp op afterThen lArg rArg ]
     compileStmt t
     goto afterElse
     afterThen <- curPos
     compileStmt e
     afterElse <- curPos
-    return ()
   return ()
 compileStmt (IfSingleStmt s b t) = compileStmt (IfStmt s b t (BlockStmt s []))
 compileStmt (BlockStmt _ stmts) = compileStmts stmts
@@ -90,6 +98,9 @@ compileArithOp OpAdd = ADD
 compileArithOp OpSub = SUB
 compileArithOp OpMul = MUL
 compileArithOp OpDiv = DIV
+compileArithOp OpBAnd = AND
+compileArithOp OpBOr  = OR
+compileArithOp OpBXor = XOR
 compileArithOp x = error ("Can't compile arith op: " ++ show x)
 
 compileAssignOp :: AssignOp -> (Arg -> Arg -> Instr)
@@ -99,14 +110,15 @@ compileAssignOp OpAssignMul = MUL
 compileAssignOp OpAssignDiv = DIV
 compileAssignOp x = error ("Can't compile assign op: " ++ show x)
 
-one :: Arg -> GHC (Arg, Maybe Arg)
-one arg = return $ (arg, Nothing)
+one :: Arg -> GHC [Arg]
+one arg = return [arg]
 
-two :: Arg -> Arg -> GHC (Arg, Maybe Arg)
-two a b = return $ (a, Just b)
+two :: Arg -> Arg -> GHC [Arg]
+two a b = return [a, b]
 
-compileExpr :: Expression SourcePos -> GHC (Arg, Maybe Arg)
+compileExpr :: Expression SourcePos -> GHC [Arg]
 compileExpr (IntLit _ i) = one $ Int i
+compileExpr (PrefixExpr _ PrefixMinus (IntLit _ i)) = one $ Int (256 - i)
 compileExpr (VarRef _ (Id _ s)) = do
   offset <- getOffset s
   one $ Ind (Int offset)
@@ -119,27 +131,44 @@ compileExpr (CallExpr _ (VarRef _ (Id _ s)) args) = do
   push [INT (compileInterrupt s)]
   two ra rb
 compileExpr (InfixExpr _ op l r) = do
-  (lArg, Nothing) <- compileExpr l
-  (rArg, Nothing) <- local succ (compileExpr r)
+  (lArg:_) <- compileExpr l
+  (rArg:_) <- local succ (compileExpr r)
   case lArg of
     Reg{} -> do
       push [ compileArithOp op lArg rArg ]
       one lArg
     _ -> do
-      c <- ask
-      let reg = Reg c
+      reg <- getReg
       push [ MOV reg lArg, compileArithOp op reg rArg ]
       one reg
+compileExpr (CondExpr s1 (InfixExpr s2 OpLT l r) t e) = compileExpr (CondExpr s1 (InfixExpr s2 OpGEq l r) e t)
+compileExpr (CondExpr s1 (InfixExpr s2 OpGT l r) t e) = compileExpr (CondExpr s1 (InfixExpr s2 OpLEq l r) e t)
+compileExpr (CondExpr s1 (InfixExpr s2 OpEq l r) t e) = compileExpr (CondExpr s1 (InfixExpr s2 OpNEq l r) e t)
+compileExpr (CondExpr _ (InfixExpr _ op l r) t e) = do
+  reg <- getReg
+  rec
+    (lArg:_) <- compileExpr l
+    (rArg:_) <- local succ (compileExpr r)
+    push [ compileCmpOp op afterThen lArg rArg ]
+
+    tArg <- compileExpr t
+    assign reg tArg
+    goto afterElse
+    afterThen <- curPos
+
+    eArg <- compileExpr e
+    assign reg eArg
+    afterElse <- curPos
+  one reg
 compileExpr x = error ("Can't compile expression: " ++ show x)
 
-assign :: Arg -> (Arg, Maybe Arg) -> GHC ()
-assign tgt (src, msrc) = do
+assign :: Arg -> [Arg] -> GHC ()
+assign _ [] = return ()
+assign tgt (src:srcs) = do
   when (tgt /= src) $ push [MOV tgt src]
-  maybe (return ()) (assign2 tgt) msrc
-
-assign2 :: Arg -> Arg -> GHC ()
-assign2 (Ind (Int offset)) src2 = push [MOV (Ind (Int (offset + 1))) src2]
-assign2 _ _ = return ()
+  case tgt of
+    Ind (Int offset) -> assign (Ind (Int (offset + 1))) srcs
+    _ -> return ()
 
 compileLValue :: LValue SourcePos -> GHC Arg
 compileLValue (LVar _ s) = do
