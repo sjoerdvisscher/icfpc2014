@@ -1,22 +1,34 @@
-main world0 unk = ((0, map (\row -> map (\v -> if v < 2 then 2 else 0) row) (fst world0)), step)
+main world0 unk = ((0, mkStepsMap (fst world0), mkFruitMap world0), step)
 
 step state w =
-  let moveCounts = snd state in
   let lastDirInv = inv (fst state) in
+  let moveCounts = fst (snd state) in
+  let fruitMap = snd (snd state) in
   let wmap = fst w in
   let lambda = fst (snd w) in
   let lpos = pos lambda in
   let ghosts = fst (snd (snd w)) in
-  let allDirs = [0,1,2,3] in
-  let idealDirs = filter (\d -> d != lastDirInv) allDirs in
-  let possible = filter (\p -> read wmap (snd p)) (map (\d -> (d, move lpos d)) [0,1,2,3]) in
+  let possible = filter (\p -> read moveCounts (snd p)) (map (\d -> (d, move lpos d)) [0,1,2,3]) in
   let allPos = map (\p -> snd p) possible in
-  let idealPos = if length allPos == 1 then allPos else map (\p -> snd p) (filter (\p -> fst p != lastDirInv) possible) in
   let measureDist = (\p -> minBy id (map (\g -> let v = sub p (pos g) in len v + not (read wmap (move p (dir v)))) ghosts)) in
-  let measureCount = (\p -> read moveCounts p) in
-  let bestPos = (if vit lambda then minBy measureDist idealPos else if measureDist lpos < 4 then maxBy measureDist allPos else minBy measureCount idealPos) in
+  let measureDist' = (\p -> if fst p == lastDirInv then 10000 else measureDist (snd p)) in
+  let measureCount = (\p -> read moveCounts (snd p) + if fst p == lastDirInv then 4 else 0) in
+  let bestPos = (if vit lambda then snd (minBy measureDist' possible) else if measureDist lpos < 4 then maxBy measureDist allPos else snd (minBy measureCount possible)) in
   let bestDir = dir (sub bestPos lpos) in
-  ((bestDir, update moveCounts lpos (\c -> c + 1)), bestDir)
+  ((bestDir, update moveCounts lpos (\c -> if c == 1 then 3 else c + 1), fruitMap), bestDir)
+
+mkStepsMap w =
+  (from (length w) (\y s ->
+    from (length (fst w)) (\x s ->
+      let p = (x, y) in
+      let v = read s p in
+      if v then if (v == 1) then trackDeadEnd s p else update s p (\_ -> 1) else s
+    ) s
+  ) w)
+trackDeadEnd s p =
+  let nonwalls = filter (\p -> read s p) (map (\d -> move p d) [0,1,2,3]) in
+  if length nonwalls == 1 then trackDeadEnd (update s p (\_ -> 0)) (fst nonwalls) else update s p (\_ -> 2)
+mkFruitMap w = 0
 
 l !! n = if n then snd l !! (n - 1) else fst l
 foldr f z l = if atom l then z else f (fst l) (foldr f z (snd l))
@@ -45,7 +57,8 @@ vit x = car x
 pos x = car (cdr x)
 dirl x = car (cdr (cdr x))
 dirg x = cdr (cdr x)
-inv x = let d = x + 2 in if d > 3 then d - 4 else d
+inv x = if x >= 2 then x - 2 else x + 2
+from n f s = if n then from (n - 1) f (f (n - 1) s) else s
 
 id x = x
 a < b = b > a
