@@ -15,7 +15,7 @@ step state w =
   let measureCount = (\p -> read moveCounts (snd p) + if fst p == lastDirInv then 4 else 0) in
   let bestPos = (if vit lambda then snd (minBy measureDist' possible) else if measureDist lpos < 4 then maxBy measureDist allPos else snd (minBy measureCount possible)) in
   let bestDir = dir (sub bestPos lpos) in
-  ((bestDir, update moveCounts lpos (\c -> if c == 1 then 3 else c + 1), fruitMap), bestDir)
+  ((bestDir, update moveCounts lpos (\c -> if length possible == 1 then 0 else if c == 1 then 3 else c + 1), fruitMap), bestDir)
 
 mkStepsMap w =
   (from (length w) (\y s ->
