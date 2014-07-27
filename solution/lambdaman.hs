@@ -11,13 +11,13 @@ step state w =
   let ghosts = fst (snd (snd w)) in
   let isGhost = (\p -> sum (map (\g -> eq p (pos g)) ghosts)) in
   let getPossible = (\p -> filter (\p' -> read wmap p') (map (\d -> move p d) directions)) in
-  let measureDist = (\p -> findGhost isGhost getPossible p (-1,-1) 5) in
+  let measureDist = (\p -> findGhost isGhost getPossible p (-1,-1) 3) in
   let dists = map (\p -> (p, measureDist p)) (getPossible lpos) in
-  let closest = fst (minBy (\p -> snd p) dists) in
-  let ghostDist = snd closest in
+  let closestPD = fst (minBy (\pd -> snd pd) dists) in
+  let ghostDist = snd closestPD in
   let possible = filter (\p -> read moveCounts (snd p) * ((ghostDist < 3) + (read wmap (snd p) != 3))) (map (\d -> (d, move lpos d)) directions) in
   let measureCount = (\p -> read moveCounts (snd p) + if fst p == lastDirInv then 4 else 0) in
-  let bestPos = (if vit lambda then fst closest else if ghostDist < 4 then fst (fst (maxBy (\p -> snd p) dists)) else snd (fst (minBy measureCount possible))) in
+  let bestPos = (if vit lambda then fst closestPD else if ghostDist < 4 then fst (fst (maxBy (\p -> snd p) dists)) else snd (fst (minBy measureCount possible))) in
   let bestDir = dir (sub bestPos lpos) in
   ((bestDir, update moveCounts lpos (\c -> if length possible == 1 then 0 else if c == 1 then 3 else c + 1), snd directions ++ [fst directions], fruitMap), bestDir)
 
