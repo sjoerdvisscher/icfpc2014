@@ -62,6 +62,8 @@ compileStmt (ExprStmt _ (AssignExpr _ op tgt src)) = do
   lval <- compileLValue tgt
   push [compileAssignOp op lval csrc]
 compileStmt (ExprStmt _ e) = void (compileExpr e)
+compileStmt (VarDeclStmt _ [VarDecl _ (Id _ s) Nothing]) = void (addVar s 1)
+compileStmt (VarDeclStmt _ [VarDecl _ (Id _ s) (Just (NewExpr _ (VarRef _ (Id _ "Array")) [IntLit _ size]))]) = void (addVar s size)
 compileStmt (VarDeclStmt _ [VarDecl _ (Id _ s) (Just (ArrayLit _ exprs))]) = do
   offset <- addVar s (length exprs)
   mapM_ (\(expr, ofs) -> compileExpr expr >>= assign (Ind (Int ofs))) $ zip exprs [offset..]
@@ -85,6 +87,11 @@ compileStmt (IfStmt _ (InfixExpr _ op l r) t e) = do
   return ()
 compileStmt (IfSingleStmt s b t) = compileStmt (IfStmt s b t (BlockStmt s []))
 compileStmt (BlockStmt _ stmts) = compileStmts stmts
+compileStmt (ForStmt s (VarInit initS) (Just b) (Just inc) (BlockStmt _ stmts)) = do
+  compileStmt (VarDeclStmt s initS)
+  start <- curPos
+  compileStmt (IfSingleStmt s b (BlockStmt s (stmts ++ [ExprStmt s inc, ThrowStmt s (IntLit s start)])))
+compileStmt (ThrowStmt _ (IntLit _ start)) = goto start -- hack for ForStmt
 compileStmt x = error ("Can't compile stmt: " ++ show x)
 
 compileCmpOp :: InfixOp -> (Int -> Arg -> Arg -> Instr)
@@ -125,6 +132,10 @@ compileExpr (VarRef _ (Id _ s)) = do
 compileExpr (BracketRef _ (VarRef _ (Id _ s)) (IntLit _ i)) = do
   offset <- getOffset s
   one $ Ind (Int (offset + i))
+compileExpr (BracketRef p (VarRef _ (Id _ s)) expr) = do
+  offset <- getOffset s
+  (arg:_) <- compileExpr (InfixExpr p OpAdd (IntLit p offset) expr)
+  one $ Ind arg
 compileExpr (CallExpr _ (VarRef _ (Id _ s)) args) = do
   startReg <- ask
   mapM_ (\(c, arg) -> local (const c) (compileExpr arg) >>= assign (Reg c)) (zip [startReg..] args)
@@ -141,9 +152,9 @@ compileExpr (InfixExpr _ op l r) = do
       reg <- getReg
       push [ MOV reg lArg, compileArithOp op reg rArg ]
       one reg
-compileExpr (CondExpr s1 (InfixExpr s2 OpLT l r) t e) = compileExpr (CondExpr s1 (InfixExpr s2 OpGEq l r) e t)
-compileExpr (CondExpr s1 (InfixExpr s2 OpGT l r) t e) = compileExpr (CondExpr s1 (InfixExpr s2 OpLEq l r) e t)
-compileExpr (CondExpr s1 (InfixExpr s2 OpEq l r) t e) = compileExpr (CondExpr s1 (InfixExpr s2 OpNEq l r) e t)
+compileExpr (CondExpr p (InfixExpr _ OpLT l r) t e) = compileExpr (CondExpr p (InfixExpr p OpGEq l r) e t)
+compileExpr (CondExpr p (InfixExpr _ OpGT l r) t e) = compileExpr (CondExpr p (InfixExpr p OpLEq l r) e t)
+compileExpr (CondExpr p (InfixExpr _ OpEq l r) t e) = compileExpr (CondExpr p (InfixExpr p OpNEq l r) e t)
 compileExpr (CondExpr _ (InfixExpr _ op l r) t e) = do
   reg <- getReg
   rec
@@ -177,6 +188,10 @@ compileLValue (LVar _ s) = do
 compileLValue (LBracket _ (VarRef _ (Id _ s)) (IntLit _ i)) = do
   offset <- getOffset s
   return $ Ind (Int (offset + i))
+compileLValue (LBracket p (VarRef _ (Id _ s)) expr) = do
+  offset <- getOffset s
+  (arg:_) <- compileExpr (InfixExpr p OpAdd (IntLit p offset) expr)
+  return $ Ind arg
 compileLValue x = error ("Can't compile lvalue: " ++ show x)
 
 compileInterrupt :: String -> Int
@@ -185,6 +200,8 @@ compileInterrupt "lambdaPos" = 1
 compileInterrupt "me" = 3
 compileInterrupt "ghostPos" = 5
 compileInterrupt "ghostStatus" = 6
+compileInterrupt "map" = 7
+compileInterrupt "debug" = 8
 compileInterrupt x = error ("Can't compile interrupt: " ++ show x)
 
 data Arg
